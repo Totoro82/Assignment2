@@ -16,6 +16,7 @@ Node *top = NULL; // top of stack
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;// mutex for locking
 
 atomic_int next_node_id = 0;
+atomic_int thread_id = 0;
 
 /*Option 1: Mutex Lock*/
 void push_mutex() {
@@ -78,7 +79,7 @@ int pop_cas() {
 void *thread_func(void *arg) {
      int opt = (int)(intptr_t)arg; //transform pointer to int
      /* Assign each thread an id so that they are unique in range [0, num_thread -1 ] */
-     int my_id;
+     int my_id = atomic_fetch_add(&thread_id, 1);
 
      if( opt==0 ){
           push_mutex();push_mutex();pop_mutex();pop_mutex();push_mutex();
@@ -86,7 +87,7 @@ void *thread_func(void *arg) {
           // push_cas();push_cas();pop_cas();pop_cas();push_cas();
      }
 
-     // printf("Thread %d: exit\n", my_id);
+     printf("Thread %d: exit\n", my_id);
      pthread_exit(0);
 }
 
