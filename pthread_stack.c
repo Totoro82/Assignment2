@@ -3,18 +3,18 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdatomic.h>
 
 int num_threads;
 
 typedef struct node {
     int node_id; //a unique ID assigned to each node
-    struct node *next;
+    struct node *next; //pointer to the next node in the stack
 } Node;
 
 _Atomic(Node *) top = NULL; // top of the stack
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // mutex for locking
 
+// Atomic integers for unique IDs
 atomic_int next_node_id = 0;
 atomic_int thread_id = 0;
 
@@ -25,28 +25,27 @@ void push_mutex() {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
-    new_node->node_id = atomic_fetch_add(&next_node_id, 1); //fetches next id and increments atomically
+    new_node->node_id = atomic_fetch_add(&next_node_id, 1); // assign a unique ID to the new node
     // cs
     pthread_mutex_lock(&mutex);
-    new_node->next = top;
-    top = new_node;
+
+    new_node->next = top; //update next pointer of new top
+    top = new_node;//update top of the stack
+
     //end cs
     pthread_mutex_unlock(&mutex);
-
-    //update top of the stack below
-    //assign a unique ID to the new node
 }
 
 int pop_mutex() {
     Node *old_node;
     int id = -1;
-    //update top of the stack below
+
     //cs
     pthread_mutex_lock(&mutex);
 
-    old_node = top;
-    if (old_node != NULL) {
-        top = old_node->next;
+    old_node = top;//get current top
+    if (old_node != NULL) { //stack not empty
+        top = old_node->next;//update top to next node in stack
         id = old_node->node_id;
         free(old_node);
     }
@@ -59,19 +58,16 @@ int pop_mutex() {
 /*Option 2: Compare-and-Swap (CAS)*/
 void push_cas() {
     Node *old_node;
-    Node *new_node = malloc(sizeof(Node));
+    Node *new_node = malloc(sizeof(Node)); //create new node
     if (new_node == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
-    new_node->node_id = atomic_fetch_add(&next_node_id, 1);
+    new_node->node_id = atomic_fetch_add(&next_node_id, 1);// assign a unique ID to the new node
     do {
-        old_node = atomic_load(&top);
-        new_node->next = old_node;
-    } while (!atomic_compare_exchange_weak(&top, &old_node, new_node));
-
-    //update top of the stack below
-    //assign a unique ID to the new node
+        old_node = atomic_load(&top); //get current top
+        new_node->next = old_node; //update next pointer of new top
+    } while (!atomic_compare_exchange_weak(&top, &old_node, new_node)); // assign new node as top if top is still old_node
 }
 
 int pop_cas() {
@@ -79,25 +75,21 @@ int pop_cas() {
     Node *new_node;
     int id = -1;
     do {
-        old_node = atomic_load(&top);
-        if (old_node == NULL) {
-            return -1; //stack empty
+        old_node = atomic_load(&top); //get current top
+        if (old_node == NULL) {//stack empty
+            return -1;
         }
-        new_node = old_node->next;
-    } while (!atomic_compare_exchange_weak(&top, &old_node, new_node));
+        new_node = old_node->next; //update new top to next node in stack
+    } while (!atomic_compare_exchange_weak(&top, &old_node, new_node)); //assign new_node as top if top is still old_node
     id = old_node->node_id;
     free(old_node);
-
-    //update top of the stack below
-
     return id;
 }
 
 /* the thread function */
 void *thread_func(void *arg) {
     int opt = (int) (intptr_t) arg; //transform pointer to int
-    /* Assign each thread an id so that they are unique in range [0, num_thread -1 ] */
-    int my_id = atomic_fetch_add(&thread_id, 1);
+    int my_id = atomic_fetch_add(&thread_id, 1); // assign a unique ID to the thread
 
     if (opt == 0) {
         push_mutex();
@@ -133,6 +125,7 @@ int main(int argc, char *argv[]) {
         pthread_join(workers[i], NULL); // wait for all threads to finish
     }
     free(workers);
+
     //Print out all remaining nodes in Stack
     if (option == 0) {
         pthread_mutex_lock(&mutex);
@@ -156,6 +149,8 @@ int main(int argc, char *argv[]) {
         top = NULL;
         pthread_mutex_unlock(&mutex);
         pthread_mutex_destroy(&mutex);
+
+    /* Option 1: Mutex */
     } else {
         Node *current = atomic_load(&top);
         int count = 0;
